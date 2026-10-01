@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// 1. NextAuth / User Models
+model User {
+  id             String    @id @default(cuid())
+  name           String?
+  email          String?   @unique
+  emailVerified  DateTime?
+  image          String?
+  role           Role      @default(BUYER)
+  status         Status    @default(PENDING)
+  isOnboarded    Boolean   @default(false)
+  
+  // Custom Profile Fields
+  whatsapp       String?
+  age            Int?
+  country        String?
+  address        String?
+  
+  // Payment / Seller Info
+  paymentMethod  String?   @default("JazzCash") // JazzCash, EasyPaisa, Bank
+  accountNumber  String?   // Also covers jazzCashNumber
+  accountTitle   String?   
+  
+  pendingBalance Float     @default(0)   // 80% for seller
+  totalPaid      Float     @default(0)   // Total earnings ever paid
+  
+  // Relations
+  accounts       Account[]
+  sessions       Session[]
+  products       Product[]
+  orders         Order[]
+  payoutRequests PayoutRequest[]
+  customRequests CustomRequest[]
+  
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// 2. Product Model
+model Product {
+  id          String   @id @default(cuid())
+  name        String   // Was 'title' in user's diff, kept 'name' for code consistency
+  description String?
+  category    String   // 3D Puff, Applique, Flat
+  price       Float    // PKR
+  stitches    String?
+  image       String   // Vercel Blob URL (Preview)
+  sourceFile  String?  // Vercel Blob URL (Actual DST/PES file)
+  status      Status   @default(PENDING) 
+  
+  // Analytics
+  viewCount   Int      @default(0)
+  clickCount  Int      @default(0) // WhatsApp Clicks
+  isPinned    Boolean  @default(false)
+  downloads   Int      @default(0)
+  
+  sellerId    String
+  seller      User     @relation(fields: [sellerId], references: [id])
+  orders      Order[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// 3. Order Model
+model Order {
+  id          String   @id @default(cuid())
+  productId   String
+  buyerId     String?
+  buyerName   String?
+  status      String   @default("Pending")
+  price       Float
+  createdAt   DateTime @default(now())
+  
+  user        User?    @relation(fields: [buyerId], references: [id])
+  product     Product  @relation(fields: [productId], references: [id])
+}
+
+// 4. Payout Requests
+model PayoutRequest {
+  id        String   @id @default(cuid())
+  userId    String
+  amount    Float
+  status    String   @default("PENDING") // PENDING, PAID
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+// 5. Custom Requests (Quotes)
+model CustomRequest {
+  id           String   @id @default(cuid())
+  email        String
+  instruction  String?  @db.Text
+  image        String   // Vercel Blob URL
+  status       String   @default("PENDING") // PENDING, QUOTED, REJECTED
+  
+  // Response from Admin
+  quoteAmount  Float?
+  adminNote    String?  @db.Text
+
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id])
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// 6. Global & User Activity Logs (For WarRoom)
+model ActivityLog {
+  id        String   @id @default(cuid())
+  type      String   // UPLOAD, ORDER, BID, PAYOUT
+  user      String?  // Username or ID
+  amount    Float?
+  design    String?  // Design Name
+  location  String?
+  createdAt DateTime @default(now())
+}
+
+enum Role {
+  ADMIN
+  SELLER
+  BUYER
+}
+
+enum Status {
+  PENDING
+  ACTIVE
+  REJECTED
+}
